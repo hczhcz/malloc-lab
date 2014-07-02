@@ -79,7 +79,7 @@ void *first_free;
 /*
  * mm_first_free - Get and also update first_free.
  */
-void *mm_first_free(void)
+inline void *mm_first_free(void)
 {
     void *now = first_free;
     size_t now_size = 0;
@@ -120,7 +120,7 @@ inline void mm_set_first_free(void *ptr)
 /*
  * mm_put_header - Generate the header of a block and return the data section.
  */
-void *mm_put_header(void *ptr, size_t size)
+inline void *mm_put_header(void *ptr, size_t size)
 {
     ((MMHeader *) ptr)->size = size;
     return ptr + MM_HEADER_SIZE;
@@ -129,19 +129,9 @@ void *mm_put_header(void *ptr, size_t size)
 /*
  * mm_restore_header - Get the header of a block from a data pointer.
  */
-MMHeader *mm_restore_header(void *ptr)
+inline MMHeader *mm_restore_header(void *ptr)
 {
     return (MMHeader *) (ptr - MM_HEADER_SIZE);
-}
-
-/*
- * mm_init - Initialize the malloc package.
- */
-int mm_init(void)
-{
-    mm_set_first_free(mem_heap_lo());
-
-    return 0;
 }
 
 /*
@@ -165,7 +155,7 @@ void mm_print(void)
 /*
  * mm_merge - Try to merge with next free block.
  */
-int mm_merge(void *now, size_t *p_now_size)
+inline int mm_merge(void *now, size_t *p_now_size)
 {
     void *next = now + *p_now_size;
     size_t next_size = ((MMHeader *) next)->size;
@@ -177,6 +167,16 @@ int mm_merge(void *now, size_t *p_now_size)
     } else {
         return 0;
     }
+}
+
+/*
+ * mm_init - Initialize the malloc package.
+ */
+int mm_init(void)
+{
+    mm_set_first_free(mem_heap_lo());
+
+    return 0;
 }
 
 /*
