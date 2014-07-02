@@ -1,6 +1,6 @@
 /*
  * mm-naive.c - The fastest, least memory-efficient malloc package.
- * 
+ *
  * In this naive approach, a block is allocated by simply incrementing
  * the brk pointer.  A block is pure payload. There are no headers or
  * footers.  Blocks are never coalesced or reused. Realloc is
@@ -75,7 +75,32 @@ typedef struct {
 /* first free block */
 void *first_free;
 
-/* 
+/*
+ * mm_first_free - Get and also update first_free.
+ */
+void *mm_first_free()
+{
+    void *now = first_free;
+    size_t now_size = 0;
+
+    // scan the block list
+    while ((now - 1) != mem_heap_hi()) {
+        now_size = ((MMHeader *) now)->size;
+
+        if (SIGN_CHECK(now_size)) {
+            break;
+        } else {
+            now += now_size;
+        }
+    }
+
+    // write back
+    first_free = now;
+
+    return now;
+}
+
+/*
  * mm_put_header - Generate the header of a block and return the data section.
  */
 void *mm_put_header(void *ptr, size_t size)
@@ -84,7 +109,7 @@ void *mm_put_header(void *ptr, size_t size)
     return ptr + MM_HEADER_SIZE;
 }
 
-/* 
+/*
  * mm_restore_header - Get the header of a block from a data pointer.
  */
 MMHeader *mm_restore_header(void *ptr)
@@ -92,7 +117,7 @@ MMHeader *mm_restore_header(void *ptr)
     return (MMHeader *) (ptr - MM_HEADER_SIZE);
 }
 
-/* 
+/*
  * mm_init - Initialize the malloc package.
  */
 int mm_init(void)
@@ -120,29 +145,24 @@ void mm_print()
     }
 }
 
-/* 
+/*
  * mm_malloc - Allocate a block.
  *     Always allocate a block whose size is a multiple of the alignment.
  */
 void *mm_malloc(size_t size)
 {
-    void *now = first_free;
+    void *now = mm_first_free();
     void *best = NULL;
     size_t now_size = 0;
     size_t best_size = SIZE_T_MAX;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
     size_t more_size;
 
-    // param checking
-    // if (!size) return;
-
     // scan the block list
     // if the best one is not found, keep best == NULL
     // if the last one is used, let now_size == 0
     while ((now - 1) != mem_heap_hi()) {
         now_size = ((MMHeader *) now)->size;
-        // if (now_size) printf("%d\n", now_size);
-        // printf("%x\n", first_free);
 
         if (SIGN_CHECK(now_size)) {
             // current block is not used
@@ -170,8 +190,6 @@ void *mm_malloc(size_t size)
         }
     }
 
-    // printf("%d, %d\n", now_size, need_size);
-
     // if there is no useable block
     if (!best) {
         // seek to the tail block
@@ -186,11 +204,7 @@ void *mm_malloc(size_t size)
             mm_put_header(best + need_size, SIGN_MARK(more_size));
             best_size = need_size;
         }
-        //printf("%d\n", more_size);
     }
-
-    // change first_free
-    if (best == first_free) first_free += best_size;
 
     return mm_put_header(best, best_size);
 }
@@ -217,7 +231,7 @@ void *mm_realloc(void *ptr, size_t size)
     /*void *oldptr = ptr;
     void *newptr;
     size_t copySize;
-    
+
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
