@@ -102,6 +102,22 @@ void *mm_first_free(void)
 }
 
 /*
+ * mm_get_first_free - Access first_free.
+ */
+inline void *mm_get_first_free(void)
+{
+    return first_free;
+}
+
+/*
+ * mm_set_first_free - Change first_free.
+ */
+inline void mm_set_first_free(void *ptr)
+{
+    first_free = ptr;
+}
+
+/*
  * mm_put_header - Generate the header of a block and return the data section.
  */
 void *mm_put_header(void *ptr, size_t size)
@@ -123,7 +139,7 @@ MMHeader *mm_restore_header(void *ptr)
  */
 int mm_init(void)
 {
-    first_free = mem_heap_lo();
+    mm_set_first_free(mem_heap_lo());
 
     return 0;
 }
@@ -238,7 +254,9 @@ void mm_free(void *ptr)
     MMHeader *now = mm_restore_header(ptr);
 
     // change first_free
-    if (ptr < first_free) first_free = now;
+    if (now < mm_get_first_free()) {
+        mm_set_first_free(now);
+    }
 
     // mark it as an unused block
     mm_put_header(now, SIGN_MARK(now->size));
