@@ -63,8 +63,9 @@ team_t team = {
  * options of memory allocator
  */
 /* if the block can fit */
-//#define MM_FIT(need, size) (((size) << 3) < (need))
-#define MM_FIT(need, size) (1)
+/* best fit */  // #define MM_FIT(need, size) (0)
+/* mixed fit */ // #define MM_FIT(need, size) (((size) << 1) < (need))
+/* first fit */ #define MM_FIT(need, size) (1)
 
 /* header of a data block */
 typedef struct {
@@ -78,7 +79,7 @@ void *first_free;
 /*
  * mm_first_free - Get and also update first_free.
  */
-void *mm_first_free()
+void *mm_first_free(void)
 {
     void *now = first_free;
     size_t now_size = 0;
@@ -130,7 +131,7 @@ int mm_init(void)
 /*
  * mm_print - Print block list for debug purpose.
  */
-void mm_print()
+void mm_print(void)
 {
     void *now = mem_heap_lo();
     size_t now_size = 0;
@@ -142,6 +143,23 @@ void mm_print()
 
         // visit the next block
         now += SIGN_CHECK(now_size) ? SIGN_MARK(now_size) : now_size;
+    }
+}
+
+/*
+ * mm_merge - Try to merge with next free block.
+ */
+int mm_merge(void *now, size_t *p_now_size)
+{
+    void *next = now + *p_now_size;
+    size_t next_size = ((MMHeader *) next)->size;
+
+    if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
+        *p_now_size += SIGN_MARK(next_size);
+        mm_put_header(now, SIGN_MARK(*p_now_size));
+        return -1;
+    } else {
+        return 0;
     }
 }
 
@@ -168,6 +186,9 @@ void *mm_malloc(size_t size)
             // current block is not used
 
             now_size = SIGN_MARK(now_size);
+
+            // try to merge useable blocks
+            while (now_size < need_size && mm_merge(now, &now_size));
 
             // check if this block is useable and useful
             if (now_size >= need_size && now_size < best_size) {
