@@ -189,6 +189,23 @@ inline int mm_merge(void *ptr, size_t *p_size)
 }
 
 /*
+ * mm_break - Extend the last block.
+ */
+inline void *mm_break(void *ptr, size_t size, size_t need_size)
+{
+    size_t brk_size = need_size - size;
+
+    // historical data
+    total_brk += brk_size;
+
+    // extense the heap
+    mem_sbrk(brk_size);
+
+    // generate the block
+    return mm_put_header(ptr, need_size);
+}
+
+/*
  * mm_init - Initialize the malloc package.
  */
 int mm_init(void)
@@ -260,10 +277,7 @@ void *mm_malloc(size_t size)
 
     // if there is no useable block
     if (!best) {
-        // seek to the tail block
-        mem_sbrk(need_size - now_size);
-        best = now - now_size;
-        best_size = need_size;
+        return mm_break(now - now_size, now_size, need_size);
     } else {
         more_size = best_size - need_size;
 
@@ -317,9 +331,9 @@ void *mm_realloc(void *ptr, size_t size)
     size_t now_size = now->size;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
 
-    if (now_size > size)
+    //if (now_size > size)
     // try to merge useable blocks
-    while (now_size < need_size && mm_merge(now, &now_size))
+    //while (now_size < need_size && mm_merge(now, &now_size))
 
 
     /*void *oldptr = ptr;
