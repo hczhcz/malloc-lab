@@ -73,9 +73,11 @@ team_t team = {
 
 /* if searching is enabled (not only breaking) */
     /* always */
-    #define MM_SEARCH() (1)
+    // #define MM_SEARCH() (1)
     /* cond 1 */
     // #define MM_SEARCH() (total_alloc - total_free < (total_brk >> 1))
+    /* block first */
+    #define MM_SEARCH() (total_alloc)
 
 /* if check param of functions */
     // #define MM_CHECK
@@ -192,6 +194,29 @@ inline int mm_merge(void *ptr, size_t *p_size)
 }
 
 /*
+ * mm_split - Split from a block if it is possible, and use part of it.
+ */
+inline void *mm_split(void *ptr, size_t size, size_t need_size)
+{
+    size_t more_size = size - need_size;
+
+    // if these is more space for another block
+    if (more_size >= USEFUL_SIZE) {
+        // create another block
+        mm_put_header(ptr + need_size, SIGN_MARK(more_size));
+
+        // generate the block
+        return mm_put_header(ptr, need_size);
+    } else {
+        // wasted size
+        total_alloc += more_size;
+
+        // generate the block
+        return mm_put_header(ptr, size);
+    }
+}
+
+/*
  * mm_break - Extend the last block.
  */
 inline void *mm_break(void *ptr, size_t size, size_t need_size)
@@ -236,7 +261,9 @@ void *mm_malloc(size_t size)
     size_t now_size = 0;
     size_t best_size = SIZE_T_MAX;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
-    size_t more_size;
+
+    // historical data
+    total_alloc += need_size;
 
     if (MM_SEARCH()) {
         // scan the block list
@@ -273,28 +300,18 @@ void *mm_malloc(size_t size)
                 now_size = 0;
             }
         }
+
+        if (best) {
+            // there is useable block and splitting is possible
+            return mm_split(best, best_size, need_size);
+        } else {
+            // there is no useable block and sbrk is needed
+            return mm_break(now - now_size, now_size, need_size);
+        }
     } else {
         // force sbrk
-        now = mem_heap_hi() + 1;
+        return mm_break(mem_heap_hi(), 0, need_size);
     }
-
-    // if there is no useable block
-    if (!best) {
-        return mm_break(now - now_size, now_size, need_size);
-    } else {
-        more_size = best_size - need_size;
-
-        // if these is more space than necessary
-        if (more_size >= USEFUL_SIZE) {
-            mm_put_header(best + need_size, SIGN_MARK(more_size));
-            best_size = need_size;
-        }
-    }
-
-    // historical data
-    total_alloc += best_size;
-
-    return mm_put_header(best, best_size);
 }
 
 /*
