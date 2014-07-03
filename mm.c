@@ -77,7 +77,7 @@ team_t team = {
     /* cond 1 */
     // #define MM_SEARCH() (total_alloc - total_free < (total_brk >> 1))
     /* block first */
-    #define MM_SEARCH() (total_alloc)
+    #define MM_SEARCH() (total_alloc > need_size)
 
 /* if check param of functions */
     // #define MM_CHECK
@@ -165,6 +165,8 @@ void mm_print(void)
     void *now = mem_heap_lo();
     size_t now_size = 0;
 
+    printf("\n");
+
     // scan the block list
     while ((now - 1) != mem_heap_hi()) {
         now_size = MM(now)->size;
@@ -240,8 +242,9 @@ int mm_init(void)
 {
     mm_set_first_free(mem_heap_lo());
 
-    // put a small block
-    mm_free(mm_malloc(320));
+    // put a small block to hold some data
+    mem_sbrk(48);
+    mm_put_header(mem_heap_lo(), SIGN_MARK(48));
 
     return 0;
 }
@@ -310,7 +313,7 @@ void *mm_malloc(size_t size)
         }
     } else {
         // force sbrk
-        return mm_break(mem_heap_hi(), 0, need_size);
+        return mm_break(mem_heap_hi() + 1, 0, need_size);
     }
 }
 
@@ -348,33 +351,28 @@ void *mm_realloc(void *ptr, size_t size)
 #endif
 
     void *now = mm_restore_header(ptr);
+    void *dest;
     size_t now_size = MM(now)->size;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
 
     // try to merge useable blocks
     while (now_size < need_size && mm_merge(now, &now_size));
 
-    if (now_size > need_size) {
-        //
+    if (now_size >= need_size) {
+        // the block can be locally extensed and splitting is possible
+        return mm_split(now, now_size, need_size);
+    } else {
+        if ((now + now_size - 1) == mem_heap_hi()) {
+            // the block is the last block and it can be extensed
+            return mm_break(now, now_size, need_size);
+        } else {
+            // need to allocate a new block and copy data to it
+            dest = mm_malloc(size);
+            memcpy(dest, ptr, MM(now)->size - MM_HEADER_SIZE);
+            mm_free(ptr);
+            return dest;
+        }
     }
-
-    //if (now_size > size)
-
-
-    /*void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;*/
-    return 0;
 }
 
 
