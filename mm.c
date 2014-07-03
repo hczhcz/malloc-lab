@@ -62,10 +62,17 @@ team_t team = {
 /*
  * options of memory allocator
  */
+
 /* if the block can fit */
-/* best fit */  // #define MM_FIT(need, size) (0)
-/* mixed fit */ // #define MM_FIT(need, size) (((size) << 1) < (need))
-/* first fit */ #define MM_FIT(need, size) (1)
+    /* best fit */
+    // #define MM_FIT(need, size) (0)
+    /* mixed fit */
+    // #define MM_FIT(need, size) (((size) << 1) < (need))
+    /* first fit */
+    #define MM_FIT(need, size) (1)
+
+/* if check param of functions */
+    // #define MM_CHECK
 
 /* header of a data block */
 typedef struct {
@@ -75,6 +82,11 @@ typedef struct {
 
 /* first free block */
 void *first_free;
+
+/* historical data */
+size_t total_alloc = 0;
+size_t total_free = 0;
+size_t total_brk = 0;
 
 /*
  * mm_first_free - Get and also update first_free.
@@ -176,6 +188,9 @@ int mm_init(void)
 {
     mm_set_first_free(mem_heap_lo());
 
+    // put a small block
+    mm_free(mm_malloc(320));
+
     return 0;
 }
 
@@ -185,6 +200,10 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+#ifdef MM_CHECK
+    if (!size) return;
+#endif
+
     void *now = mm_first_free();
     void *best = NULL;
     size_t now_size = 0;
@@ -243,6 +262,9 @@ void *mm_malloc(size_t size)
         }
     }
 
+    // historical data
+    total_alloc += best_size;
+
     return mm_put_header(best, best_size);
 }
 
@@ -251,7 +273,14 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+#ifdef MM_CHECK
+    if (!ptr) return;
+#endif
+
     MMHeader *now = mm_restore_header(ptr);
+
+    // historical data
+    total_free += now->size;
 
     // change first_free
     if (now < mm_get_first_free()) {
