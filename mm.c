@@ -71,6 +71,12 @@ team_t team = {
     /* first fit */
     #define MM_FIT(need, size) (1)
 
+/* if searching is enabled (not only breaking) */
+    /* always */
+    #define MM_SEARCH() (1)
+    /* cond 1 */
+    // #define MM_SEARCH() (total_alloc - total_free < (total_brk >> 1))
+
 /* if check param of functions */
     // #define MM_CHECK
 
@@ -167,14 +173,15 @@ void mm_print(void)
 /*
  * mm_merge - Try to merge with next free block.
  */
-inline int mm_merge(void *now, size_t *p_now_size)
+inline int mm_merge(void *ptr, size_t *p_size)
 {
-    void *next = now + *p_now_size;
+    void *next = ptr + *p_size;
     size_t next_size = ((MMHeader *) next)->size;
 
+    // if the next block can be merged
     if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
-        *p_now_size += SIGN_MARK(next_size);
-        mm_put_header(now, SIGN_MARK(*p_now_size));
+        *p_size += SIGN_MARK(next_size);
+        mm_put_header(ptr, SIGN_MARK(*p_size));
         return -1;
     } else {
         return 0;
@@ -211,39 +218,44 @@ void *mm_malloc(size_t size)
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
     size_t more_size;
 
-    // scan the block list
-    // if the best one is not found, keep best == NULL
-    // if the last one is used, let now_size == 0
-    while ((now - 1) != mem_heap_hi()) {
-        now_size = ((MMHeader *) now)->size;
+    if (MM_SEARCH()) {
+        // scan the block list
+        // if the best one is not found, keep best == NULL
+        // if the last one is used, let now_size == 0
+        while ((now - 1) != mem_heap_hi()) {
+            now_size = ((MMHeader *) now)->size;
 
-        if (SIGN_CHECK(now_size)) {
-            // current block is not used
+            if (SIGN_CHECK(now_size)) {
+                // current block is not used
 
-            now_size = SIGN_MARK(now_size);
+                now_size = SIGN_MARK(now_size);
 
-            // try to merge useable blocks
-            while (now_size < need_size && mm_merge(now, &now_size));
+                // try to merge useable blocks
+                while (now_size < need_size && mm_merge(now, &now_size));
 
-            // check if this block is useable and useful
-            if (now_size >= need_size && now_size < best_size) {
-                best = now;
-                best_size = now_size;
+                // check if this block is useable and useful
+                if (now_size >= need_size && now_size < best_size) {
+                    best = now;
+                    best_size = now_size;
 
-                if (MM_FIT(need_size, now_size)) break;
+                    if (MM_FIT(need_size, now_size)) break;
+                }
+
+                // visit the next block
+                now += now_size;
+            } else {
+                // current block is used
+
+                // visit the next block
+                now += now_size;
+
+                // reset now_size
+                now_size = 0;
             }
-
-            // visit the next block
-            now += now_size;
-        } else {
-            // current block is used
-
-            // visit the next block
-            now += now_size;
-
-            // reset now_size
-            now_size = 0;
         }
+    } else {
+        // force sbrk
+        now = mem_heap_hi() + 1;
     }
 
     // if there is no useable block
@@ -296,6 +308,20 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
+#ifdef MM_CHECK
+    if (!ptr) return mm_malloc(size);
+    if (!size) return mm_free(ptr);
+#endif
+
+    MMHeader *now = mm_restore_header(ptr);
+    size_t now_size = now->size;
+    size_t need_size = MM_HEADER_SIZE + ALIGN(size);
+
+    if (now_size > size)
+    // try to merge useable blocks
+    while (now_size < need_size && mm_merge(now, &now_size))
+
+
     /*void *oldptr = ptr;
     void *newptr;
     size_t copySize;
