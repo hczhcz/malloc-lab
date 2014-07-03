@@ -80,6 +80,9 @@ team_t team = {
 /* if check param of functions */
     // #define MM_CHECK
 
+/* cast a void pointer to a header pointer */
+#define MM(ptr) ((MMHeader *) (ptr))
+
 /* header of a data block */
 typedef struct {
     /* size of the block, apply SIGN_MARK if the block is not used */
@@ -104,7 +107,7 @@ inline void *mm_first_free(void)
 
     // scan the block list
     while ((now - 1) != mem_heap_hi()) {
-        now_size = ((MMHeader *) now)->size;
+        now_size = MM(now)->size;
 
         if (SIGN_CHECK(now_size)) {
             break;
@@ -140,16 +143,16 @@ inline void mm_set_first_free(void *ptr)
  */
 inline void *mm_put_header(void *ptr, size_t size)
 {
-    ((MMHeader *) ptr)->size = size;
+    MM(ptr)->size = size;
     return ptr + MM_HEADER_SIZE;
 }
 
 /*
  * mm_restore_header - Get the header of a block from a data pointer.
  */
-inline MMHeader *mm_restore_header(void *ptr)
+inline void *mm_restore_header(void *ptr)
 {
-    return (MMHeader *) (ptr - MM_HEADER_SIZE);
+    return ptr - MM_HEADER_SIZE;
 }
 
 /*
@@ -162,7 +165,7 @@ void mm_print(void)
 
     // scan the block list
     while ((now - 1) != mem_heap_hi()) {
-        now_size = ((MMHeader *) now)->size;
+        now_size = MM(now)->size;
         printf("pos: %x - head: %x\n", (unsigned) now, now_size);
 
         // visit the next block
@@ -176,7 +179,7 @@ void mm_print(void)
 inline int mm_merge(void *ptr, size_t *p_size)
 {
     void *next = ptr + *p_size;
-    size_t next_size = ((MMHeader *) next)->size;
+    size_t next_size = MM(next)->size;
 
     // if the next block can be merged
     if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
@@ -240,7 +243,7 @@ void *mm_malloc(size_t size)
         // if the best one is not found, keep best == NULL
         // if the last one is used, let now_size == 0
         while ((now - 1) != mem_heap_hi()) {
-            now_size = ((MMHeader *) now)->size;
+            now_size = MM(now)->size;
 
             if (SIGN_CHECK(now_size)) {
                 // current block is not used
@@ -303,10 +306,10 @@ void mm_free(void *ptr)
     if (!ptr) return;
 #endif
 
-    MMHeader *now = mm_restore_header(ptr);
+    void *now = mm_restore_header(ptr);
 
     // historical data
-    total_free += now->size;
+    total_free += MM(now)->size;
 
     // change first_free
     if (now < mm_get_first_free()) {
@@ -314,7 +317,7 @@ void mm_free(void *ptr)
     }
 
     // mark it as an unused block
-    mm_put_header(now, SIGN_MARK(now->size));
+    mm_put_header(now, SIGN_MARK(MM(now)->size));
 }
 
 /*
@@ -327,13 +330,18 @@ void *mm_realloc(void *ptr, size_t size)
     if (!size) return mm_free(ptr);
 #endif
 
-    MMHeader *now = mm_restore_header(ptr);
-    size_t now_size = now->size;
+    void *now = mm_restore_header(ptr);
+    size_t now_size = MM(now)->size;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
 
-    //if (now_size > size)
     // try to merge useable blocks
-    //while (now_size < need_size && mm_merge(now, &now_size))
+    while (now_size < need_size && mm_merge(now, &now_size));
+
+    if (now_size > need_size) {
+        //
+    }
+
+    //if (now_size > size)
 
 
     /*void *oldptr = ptr;
