@@ -221,7 +221,7 @@ void mm_print(void)
 }
 
 /*
- * mm_merge - Try to merge with next free block.
+ * mm_merge - Try to merge the block with the next free block.
  */
 inline int mm_merge(void *ptr, size_t *p_size)
 {
@@ -232,11 +232,20 @@ inline int mm_merge(void *ptr, size_t *p_size)
     if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
         *p_size += SIGN_MARK(next_size);
         mm_remove_free(next);
-        mm_put_header_free(ptr, *p_size);
         return -1;
     } else {
         return 0;
     }
+}
+
+/*
+ * mm_merge_all - Merge the block with all free blocks after it.
+ */
+inline void mm_merge_all(void *ptr, size_t *p_size, size_t need_size)
+{
+    while (*p_size < need_size && mm_merge(ptr, p_size));
+
+    mm_put_header_free(ptr, *p_size);
 }
 
 /*
@@ -284,11 +293,14 @@ inline void *mm_break(void *ptr, size_t size, size_t need_size)
  */
 inline void *mm_break_used(void *ptr, size_t size, size_t need_size)
 {
+    // do breaking
+    ptr = mm_break(ptr, size, need_size);
+
     // generate the block
     if (size) {
-        return mm_do_use(mm_break(ptr, size, need_size), need_size);
+        return mm_do_use(ptr, need_size);
     } else {
-        return mm_put_header_used(mm_break(ptr, size, need_size), need_size);
+        return mm_put_header_used(ptr, need_size);
     }
 }
 
@@ -319,7 +331,7 @@ inline void mm_search(size_t need_size, void **p_best, size_t *p_best_size)
         now_size = SIGN_MARK(MM(now)->size);
 
         // try to merge useable blocks
-        while (now_size < need_size && mm_merge(now, &now_size));
+        mm_merge_all(now, &now_size, need_size);
 
         // check if this block is useable and useful
         if (now_size >= need_size && now_size < best_size) {
@@ -431,7 +443,7 @@ void *mm_realloc(void *ptr, size_t size)
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
 
     // try to merge useable blocks
-    while (now_size < need_size && mm_merge(now, &now_size));
+    mm_merge_all(now, &now_size, need_size);
 
     if (now_size >= need_size) {
         // the block can be locally extensed and splitting is possible
@@ -439,7 +451,7 @@ void *mm_realloc(void *ptr, size_t size)
     } else {
         if ((now + now_size - 1) == mem_heap_hi()) {
             // the block is the last block and it can be extensed
-            return mm_break(now, now_size, need_size);
+            return mm_break_used(now, now_size, need_size);
         } else {
             // need to allocate a new block and copy data to it
             dest = mm_malloc(size);
