@@ -135,8 +135,8 @@ inline void mm_add_free(void *ptr)
  */
 inline void mm_remove_free(void *ptr)
 {
-    MMF(MMF(ptr)->link_r)->link_l = MMF(ptr)->link_r;
-    MMF(MMF(ptr)->link_l)->link_r = MMF(ptr)->link_l;
+    MMF(MMF(ptr)->link_r)->link_l = MMF(ptr)->link_l;
+    MMF(MMF(ptr)->link_l)->link_r = MMF(ptr)->link_r;
 }
 
 /*
@@ -150,19 +150,11 @@ inline void *mm_next_free(void *ptr)
 }
 
 /*
- * mm_before_first_free - Access the link list entry.
+ * mm_init_free - Access the link list entry.
  */
-inline void *mm_before_first_free(void)
+inline void *mm_init_free(void)
 {
     return &v_free;
-}
-
-/*
- * mm_first_free - Access the first free block.
- */
-inline void *mm_first_free(void)
-{
-    return mm_next_free(&v_free);
 }
 
 /*
@@ -189,7 +181,6 @@ inline void *mm_do_use(void *ptr, size_t size)
 inline void mm_put_header_free(void *ptr, size_t size)
 {
     MM(ptr)->size = SIGN_MARK(size);
-    // mm_add_free(ptr);
 }
 
 /*
@@ -294,7 +285,11 @@ inline void *mm_break(void *ptr, size_t size, size_t need_size)
 inline void *mm_break_used(void *ptr, size_t size, size_t need_size)
 {
     // generate the block
-    return mm_put_header_used(mm_break(ptr, size, need_size), need_size);
+    if (size) {
+        return mm_do_use(mm_break(ptr, size, need_size), need_size);
+    } else {
+        return mm_put_header_used(mm_break(ptr, size, need_size), need_size);
+    }
 }
 
 /*
@@ -314,13 +309,13 @@ inline void mm_break_free(size_t need_size)
  */
 inline void mm_search(size_t need_size, void **p_best, size_t *p_best_size)
 {
-    void *now = mm_before_first_free();
+    void *now = mm_init_free();
     void *best = NULL;
     size_t now_size;
     size_t best_size = SIZE_T_MAX;
 
     // scan the block list
-    while (mm_next_free(now)) {
+    while (now = mm_next_free(now)) {
         now_size = SIGN_MARK(MM(now)->size);
 
         // try to merge useable blocks
