@@ -56,8 +56,11 @@ team_t team = {
 /* aligned size of blocks' header */
 #define MM_HEADER_SIZE (ALIGN(sizeof(MMHeader)))
 
+/* aligned size of free blocks' header */
+#define MM_HEADERF_SIZE (ALIGN(sizeof(MMHeaderF)))
+
 /* the least size of an useful block */
-#define USEFUL_SIZE (MM_HEADER_SIZE + ALIGNMENT)
+#define USEFUL_SIZE MM_HEADERF_SIZE
 
 /*
  * options of memory allocator
@@ -73,11 +76,11 @@ team_t team = {
 
 /* if searching is enabled (not only breaking) */
     /* always */
-    // #define MM_SEARCH() (1)
+    // #define MM_DOSEARCH() (1)
     /* cond 1 */
-    // #define MM_SEARCH() (total_alloc - total_free < (total_brk >> 1))
+    // #define MM_DOSEARCH() (total_alloc - total_free < (total_brk >> 1))
     /* block first */
-    #define MM_SEARCH() (total_alloc > need_size)
+    #define MM_DOSEARCH() (total_alloc > need_size)
 
 /* if check param of functions */
     // #define MM_CHECK
@@ -85,68 +88,117 @@ team_t team = {
 /* cast a void pointer to a header pointer */
 #define MM(ptr) ((MMHeader *) (ptr))
 
-/* header of a data block */
+/* cast a void pointer to a header pointer of a free block */
+#define MMF(ptr) ((MMHeaderF *) (ptr))
+
+/* header of a block */
 typedef struct {
     /* size of the block, apply SIGN_MARK if the block is not used */
     size_t size;
 } MMHeader;
 
-/* first free block */
-void *first_free;
+/* header of a free block */
+typedef struct {
+    /* size of the block, apply SIGN_MARK if the block is not used */
+    size_t size;
+    /* the link list */
+    void *link_l;
+    void *link_r;
+} MMHeaderF;
+
+/* a virtual free block */
+MMHeaderF v_free;
 
 /* historical data */
-size_t total_alloc = 0;
-size_t total_free = 0;
-size_t total_brk = 0;
+size_t total_alloc;
+size_t total_free;
+size_t total_brk;
 
 /*
- * mm_first_free - Get and also update first_free.
+ * mm_add_free - Add a block to the free block list.
+ */
+inline void mm_add_free(void *ptr)
+{
+    void *top = v_free.link_r;
+
+    // link top to ptr
+    MMF(ptr)->link_r = top;
+    MMF(top)->link_l = ptr;
+
+    // link ptr to v_free
+    v_free   .link_r = ptr;
+    MMF(ptr)->link_l = &v_free;
+}
+
+/*
+ * mm_remove_free - Remove a block from the free block list.
+ */
+inline void mm_remove_free(void *ptr)
+{
+    MMF(MMF(ptr)->link_r)->link_l = MMF(ptr)->link_r;
+    MMF(MMF(ptr)->link_l)->link_r = MMF(ptr)->link_l;
+}
+
+/*
+ * mm_next_free - Access the next free block.
+ */
+inline void *mm_next_free(void *ptr)
+{
+    void *next = MMF(ptr)->link_r;
+
+    return (next == &v_free) ? NULL : next;
+}
+
+/*
+ * mm_before_first_free - Access the link list entry.
+ */
+inline void *mm_before_first_free(void)
+{
+    return &v_free;
+}
+
+/*
+ * mm_first_free - Access the first free block.
  */
 inline void *mm_first_free(void)
 {
-    void *now = first_free;
-    size_t now_size = 0;
-
-    // scan the block list
-    while ((now - 1) != mem_heap_hi()) {
-        now_size = MM(now)->size;
-
-        if (SIGN_CHECK(now_size)) {
-            break;
-        } else {
-            now += now_size;
-        }
-    }
-
-    // write back
-    first_free = now;
-
-    return now;
+    return mm_next_free(&v_free);
 }
 
 /*
- * mm_get_first_free - Access first_free.
+ * mm_put_header_used - Generate the header of a used block and return the data section.
  */
-inline void *mm_get_first_free(void)
-{
-    return first_free;
-}
-
-/*
- * mm_set_first_free - Change first_free.
- */
-inline void mm_set_first_free(void *ptr)
-{
-    first_free = ptr;
-}
-
-/*
- * mm_put_header - Generate the header of a block and return the data section.
- */
-inline void *mm_put_header(void *ptr, size_t size)
+inline void *mm_put_header_used(void *ptr, size_t size)
 {
     MM(ptr)->size = size;
     return ptr + MM_HEADER_SIZE;
+}
+
+/*
+ * mm_do_use - Generate the header of a used block and remove it from the free block list.
+ */
+inline void *mm_do_use(void *ptr, size_t size)
+{
+    mm_remove_free(ptr);
+    return mm_put_header_used(ptr, size);
+}
+
+/*
+ * mm_put_header_free - Generate the header of a free block.
+ */
+inline void mm_put_header_free(void *ptr, size_t size)
+{
+    MM(ptr)->size = SIGN_MARK(size);
+    // mm_add_free(ptr);
+}
+
+/*
+ * mm_do_free - Generate the header of a free block and add it to the free block list.
+ */
+inline void mm_do_free(void *ptr, size_t size)
+{
+    mm_put_header_free(ptr, size);
+    mm_add_free(ptr);
 }
 
 /*
@@ -188,7 +240,8 @@ inline int mm_merge(void *ptr, size_t *p_size)
     // if the next block can be merged
     if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
         *p_size += SIGN_MARK(next_size);
-        mm_put_header(ptr, SIGN_MARK(*p_size));
+        mm_remove_free(next);
+        mm_put_header_free(ptr, *p_size);
         return -1;
     } else {
         return 0;
@@ -205,21 +258,21 @@ inline void *mm_split(void *ptr, size_t size, size_t need_size)
     // if these is more space for another block
     if (more_size >= USEFUL_SIZE) {
         // create another block
-        mm_put_header(ptr + need_size, SIGN_MARK(more_size));
+        mm_do_free(ptr + need_size, more_size);
 
         // generate the block
-        return mm_put_header(ptr, need_size);
+        return mm_do_use(ptr, need_size);
     } else {
         // wasted size
         total_alloc += more_size;
 
         // generate the block
-        return mm_put_header(ptr, size);
+        return mm_do_use(ptr, size);
     }
 }
 
 /*
- * mm_break - Extend the last block.
+ * mm_break - Extense the last block.
  */
 inline void *mm_break(void *ptr, size_t size, size_t need_size)
 {
@@ -232,7 +285,70 @@ inline void *mm_break(void *ptr, size_t size, size_t need_size)
     mem_sbrk(brk_size);
 
     // generate the block
-    return mm_put_header(ptr, need_size);
+    return ptr;
+}
+
+/*
+ * mm_break_used - Extense the last block and generate a used block.
+ */
+inline void *mm_break_used(void *ptr, size_t size, size_t need_size)
+{
+    // generate the block
+    return mm_put_header_used(mm_break(ptr, size, need_size), need_size);
+}
+
+/*
+ * mm_break_free - Extense the heap and create a new free block.
+ */
+inline void mm_break_free(size_t need_size)
+{
+    // historical data
+    total_brk += need_size;
+
+    // extense the heap and generate the block
+    mm_do_free(mem_sbrk(need_size), need_size);
+}
+
+/*
+ * mm_search - Find a free block with enough size or try breaking
+ */
+inline void mm_search(size_t need_size, void **p_best, size_t *p_best_size)
+{
+    void *now = mm_before_first_free();
+    void *best = NULL;
+    size_t now_size;
+    size_t best_size = SIZE_T_MAX;
+
+    // scan the block list
+    while (mm_next_free(now)) {
+        now_size = SIGN_MARK(MM(now)->size);
+
+        // try to merge useable blocks
+        while (now_size < need_size && mm_merge(now, &now_size));
+
+        // check if this block is useable and useful
+        if (now_size >= need_size && now_size < best_size) {
+            best = now;
+            best_size = now_size;
+
+            if (MM_FIT(need_size, now_size)) break;
+        } else {
+            // tail block, be able to extense
+            if ((!best) && now + now_size - 1 == mem_heap_hi()) {
+                best = now;
+                best_size = now_size;
+            }
+        }
+    }
+
+    // these is no useable block and no tail block
+    if (!best) {
+        best = mem_heap_hi() + 1;
+        best_size = 0;
+    }
+
+    *p_best = best;
+    *p_best_size = best_size;
 }
 
 /*
@@ -240,11 +356,15 @@ inline void *mm_break(void *ptr, size_t size, size_t need_size)
  */
 int mm_init(void)
 {
-    mm_set_first_free(mem_heap_lo());
+    total_alloc = 0;
+    total_free = 0;
+    total_brk = 0;
+
+    v_free.link_l = &v_free;
+    v_free.link_r = &v_free;
 
     // put a small block to hold some data
-    mem_sbrk(48);
-    mm_put_header(mem_heap_lo(), SIGN_MARK(48));
+    mm_break_free(48);
 
     return 0;
 }
@@ -259,61 +379,26 @@ void *mm_malloc(size_t size)
     if (!size) return;
 #endif
 
-    void *now = mm_first_free();
-    void *best = NULL;
-    size_t now_size = 0;
-    size_t best_size = SIZE_T_MAX;
+    void *best;
+    size_t best_size;
     size_t need_size = MM_HEADER_SIZE + ALIGN(size);
 
     // historical data
     total_alloc += need_size;
 
-    if (MM_SEARCH()) {
-        // scan the block list
-        // if the best one is not found, keep best == NULL
-        // if the last one is used, let now_size == 0
-        while ((now - 1) != mem_heap_hi()) {
-            now_size = MM(now)->size;
+    if (MM_DOSEARCH()) {
+        mm_search(need_size, &best, &best_size);
 
-            if (SIGN_CHECK(now_size)) {
-                // current block is not used
-
-                now_size = SIGN_MARK(now_size);
-
-                // try to merge useable blocks
-                while (now_size < need_size && mm_merge(now, &now_size));
-
-                // check if this block is useable and useful
-                if (now_size >= need_size && now_size < best_size) {
-                    best = now;
-                    best_size = now_size;
-
-                    if (MM_FIT(need_size, now_size)) break;
-                }
-
-                // visit the next block
-                now += now_size;
-            } else {
-                // current block is used
-
-                // visit the next block
-                now += now_size;
-
-                // reset now_size
-                now_size = 0;
-            }
-        }
-
-        if (best) {
+        if (best_size >= need_size) {
             // there is useable block and splitting is possible
             return mm_split(best, best_size, need_size);
         } else {
             // there is no useable block and sbrk is needed
-            return mm_break(now - now_size, now_size, need_size);
+            return mm_break_used(best, best_size, need_size);
         }
     } else {
         // force sbrk
-        return mm_break(mem_heap_hi() + 1, 0, need_size);
+        return mm_break_used(mem_heap_hi() + 1, 0, need_size);
     }
 }
 
@@ -331,13 +416,8 @@ void mm_free(void *ptr)
     // historical data
     total_free += MM(now)->size;
 
-    // change first_free
-    if (now < mm_get_first_free()) {
-        mm_set_first_free(now);
-    }
-
     // mark it as an unused block
-    mm_put_header(now, SIGN_MARK(MM(now)->size));
+    mm_do_free(now, MM(now)->size);
 }
 
 /*
