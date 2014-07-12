@@ -142,11 +142,11 @@ inline void mm_remove_free(void *ptr)
 /*
  * mm_next_free - Access the next free block.
  */
-inline void *mm_next_free(void *ptr)
+inline int mm_next_free(void **ptr)
 {
-    void *next = MMF(ptr)->link_r;
+    *ptr = MMF(*ptr)->link_r;
 
-    return (next == &v_free) ? NULL : next;
+    return *ptr != &v_free;
 }
 
 /*
@@ -230,8 +230,8 @@ inline int mm_merge(void *ptr, size_t *p_size)
 
     // if the next block can be merged
     if ((next - 1) != mem_heap_hi() && SIGN_CHECK(next_size)) {
-        *p_size += SIGN_MARK(next_size);
         mm_remove_free(next);
+        *p_size += SIGN_MARK(next_size);
         return -1;
     } else {
         return 0;
@@ -244,8 +244,6 @@ inline int mm_merge(void *ptr, size_t *p_size)
 inline void mm_merge_all(void *ptr, size_t *p_size, size_t need_size)
 {
     while (*p_size < need_size && mm_merge(ptr, p_size));
-
-    mm_put_header_free(ptr, *p_size);
 }
 
 /*
@@ -327,11 +325,12 @@ inline void mm_search(size_t need_size, void **p_best, size_t *p_best_size)
     size_t best_size = SIZE_T_MAX;
 
     // scan the block list
-    while (now = mm_next_free(now)) {
+    while (mm_next_free(&now)) {
         now_size = SIGN_MARK(MM(now)->size);
 
         // try to merge useable blocks
         mm_merge_all(now, &now_size, need_size);
+        mm_put_header_free(now, now_size);
 
         // check if this block is useable and useful
         if (now_size >= need_size && now_size < best_size) {
